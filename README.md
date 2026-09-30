@@ -5,7 +5,7 @@ A twin-stick arena shooter for iPhone, iPad and Mac, built with SpriteKit and Sw
 Inspired by early-90s arcade arena shooters. All code, names and art are original.
 
 <p align="center">
-  <img src="screenshots/gameplay.png" width="720" alt="Gameplay: the contestant firing at grunts in a checkered studio arena">
+  <img src="screenshots/gameplay.png" width="720" alt="Gameplay: the contestant on the centre stage of a grey studio arena, with scoreboards on the back wall">
 </p>
 
 ## Status
@@ -18,7 +18,7 @@ First playable build. One arena, endless rooms that get harder, no map or bosses
 - **Door-based waves.** Enemies spawn in bursts from doors on all four walls until the room is cleared.
 - **Two enemy types.** Fast red grunts, and from Room 2 on, tougher purple bruisers that take four hits.
 - **Pickups.** Cash for bonus points, hearts to heal, plus spread shot and rapid fire that last 10 seconds each.
-- **16-bit look.** Pixel-art characters, pickups and a checkered studio arena, all drawn in code with no image files.
+- **16-bit look.** A 3/4 top-down studio with walkways from each door, a centre stage, and LCD scoreboards on the back wall, all pixel art drawn in code.
 - **Levelling.** Kills earn XP. Each level adds a heart to your maximum health (up to 10) and refills it, so you grow as the rooms get harder.
 - **Rooms and score.** Clear a room for a bonus and move on to a harder one. Run out of hearts and the show is cancelled.
 
