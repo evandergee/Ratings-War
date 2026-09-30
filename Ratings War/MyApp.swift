@@ -5,5 +5,8 @@ import SwiftUI
         WindowGroup {
             ContentView()
         }
+        #if os(macOS)
+        .defaultSize(width: 1000, height: 680)
+        #endif
     }
 }
