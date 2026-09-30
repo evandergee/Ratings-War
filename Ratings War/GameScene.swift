@@ -6,7 +6,7 @@ final class GameScene: SKScene {
     }
 
     private enum PickupKind {
-        case cash, spread, rapid
+        case cash, spread, rapid, heart
     }
 
     private final class Enemy {
@@ -32,11 +32,11 @@ final class GameScene: SKScene {
     }
 
     private final class Pickup {
-        let node: SKLabelNode
+        let node: SKSpriteNode
         let kind: PickupKind
         var life: TimeInterval = 8
 
-        init(node: SKLabelNode, kind: PickupKind) {
+        init(node: SKSpriteNode, kind: PickupKind) {
             self.node = node
             self.kind = kind
         }
@@ -47,23 +47,30 @@ final class GameScene: SKScene {
     private let arena = CGSize(width: 720, height: 480)
     private let wall: CGFloat = 16
     private let doorWidth: CGFloat = 96
-    private let playerRadius: CGFloat = 11
+    private let playerRadius: CGFloat = 12
+    private let characterScale: CGFloat = 2.5
     private let bulletRadius: CGFloat = 3
 
     // MARK: Nodes
 
     private let world = SKNode()
     private let player = SKNode()
-    private let barrel = SKSpriteNode(color: .white, size: CGSize(width: 16, height: 5))
+    private let barrel = SKSpriteNode(color: .white, size: CGSize(width: 16, height: 4))
     private let scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold")
     private let roomLabel = SKLabelNode(fontNamed: "Menlo-Bold")
-    private let livesLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    private let healthLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    private let xpBar = SKSpriteNode(color: .yellow, size: CGSize(width: 0, height: 4))
     private let bannerTitle = SKLabelNode(fontNamed: "AvenirNext-Heavy")
     private let bannerSubtitle = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
 
-    private var gruntTexture = SKTexture()
-    private var bruiserTexture = SKTexture()
-    private var bulletTexture = SKTexture()
+    private let playerTexture = PixelArt.texture(PixelArt.player)
+    private let gruntTexture = PixelArt.texture(PixelArt.grunt)
+    private let bruiserTexture = PixelArt.texture(PixelArt.bruiser)
+    private let bulletTexture = PixelArt.texture(PixelArt.bullet)
+    private let cashTexture = PixelArt.texture(PixelArt.cash)
+    private let spreadTexture = PixelArt.texture(PixelArt.spread)
+    private let rapidTexture = PixelArt.texture(PixelArt.rapid)
+    private let heartTexture = PixelArt.texture(PixelArt.heart)
 
     // MARK: Game state
 
@@ -78,7 +85,12 @@ final class GameScene: SKScene {
     private var pickups: [Pickup] = []
 
     private var score = 0
-    private var lives = 3
+    private var health = 3
+    private var maxHealth = 3
+    private var level = 1
+    private var xp = 0
+    private let xpBarWidth: CGFloat = 90
+    private let maxHealthCap = 10
     private var room = 1
     private var enemiesToSpawn = 0
     private var spawnTimer: TimeInterval = 0
@@ -107,10 +119,6 @@ final class GameScene: SKScene {
         guard !isBuilt else { return }
         isBuilt = true
         backgroundColor = SKColor(red: 0.03, green: 0.03, blue: 0.06, alpha: 1)
-
-        gruntTexture = circleTexture(radius: 10, fill: SKColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1))
-        bruiserTexture = circleTexture(radius: 16, fill: SKColor(red: 0.6, green: 0.3, blue: 0.9, alpha: 1))
-        bulletTexture = circleTexture(radius: bulletRadius, fill: .yellow)
 
         addChild(world)
         buildArena()
@@ -153,60 +161,26 @@ final class GameScene: SKScene {
         #endif
     }
 
-    private func circleTexture(radius: CGFloat, fill: SKColor) -> SKTexture {
-        let side = Int(radius * 2 * 3)
-        guard let context = CGContext(
-            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return SKTexture() }
-        let bounds = CGRect(x: 0, y: 0, width: side, height: side)
-        context.setFillColor(fill.withAlphaComponent(0.5).cgColor)
-        context.fillEllipse(in: bounds)
-        context.setFillColor(fill.cgColor)
-        context.fillEllipse(in: bounds.insetBy(dx: 5, dy: 5))
-        guard let image = context.makeImage() else { return SKTexture() }
-        return SKTexture(cgImage: image)
-    }
-
-    private func sprite(_ texture: SKTexture, radius: CGFloat) -> SKSpriteNode {
-        SKSpriteNode(texture: texture, size: CGSize(width: radius * 2, height: radius * 2))
+    private func pixelSprite(_ texture: SKTexture, scale: CGFloat = PixelArt.pixelSize) -> SKSpriteNode {
+        let pixels = texture.size()
+        let size = CGSize(width: pixels.width * scale, height: pixels.height * scale)
+        return SKSpriteNode(texture: texture, size: size)
     }
 
     private func buildArena() {
-        let floor = SKSpriteNode(color: SKColor(red: 0.10, green: 0.11, blue: 0.18, alpha: 1), size: arena)
-        floor.zPosition = -10
-        world.addChild(floor)
-
-        let wallColor = SKColor(red: 0.35, green: 0.40, blue: 0.55, alpha: 1)
-        let doorColor = SKColor(red: 1.0, green: 0.8, blue: 0.2, alpha: 1)
-        let horizontalSegment = (arena.width + 2 * wall - doorWidth) / 2
-        let verticalSegment = (arena.height - doorWidth) / 2
-
-        for side: CGFloat in [-1, 1] {
-            let y = side * (arena.height + wall) / 2
-            let x = side * (arena.width + wall) / 2
-            for half: CGFloat in [-1, 1] {
-                let top = SKSpriteNode(color: wallColor, size: CGSize(width: horizontalSegment, height: wall))
-                top.position = CGPoint(x: half * (doorWidth + horizontalSegment) / 2, y: y)
-                world.addChild(top)
-
-                let edge = SKSpriteNode(color: wallColor, size: CGSize(width: wall, height: verticalSegment))
-                edge.position = CGPoint(x: x, y: half * (doorWidth + verticalSegment) / 2)
-                world.addChild(edge)
-            }
-            let topDoor = SKSpriteNode(color: doorColor, size: CGSize(width: doorWidth, height: 3))
-            topDoor.position = CGPoint(x: 0, y: side * (arena.height / 2 + 1.5))
-            world.addChild(topDoor)
-
-            let sideDoor = SKSpriteNode(color: doorColor, size: CGSize(width: 3, height: doorWidth))
-            sideDoor.position = CGPoint(x: side * (arena.width / 2 + 1.5), y: 0)
-            world.addChild(sideDoor)
-        }
+        let texture = PixelArt.arenaTexture(arena: arena, wall: wall, door: doorWidth)
+        let backdrop = SKSpriteNode(
+            texture: texture,
+            size: CGSize(width: arena.width + 2 * wall, height: arena.height + 2 * wall)
+        )
+        backdrop.zPosition = -10
+        world.addChild(backdrop)
     }
 
     private func buildPlayer() {
-        let body = sprite(circleTexture(radius: playerRadius, fill: .cyan), radius: playerRadius)
+        let body = pixelSprite(playerTexture, scale: characterScale)
         barrel.anchorPoint = CGPoint(x: 0, y: 0.5)
+        barrel.position = CGPoint(x: 0, y: -8)
         barrel.zPosition = 1
         player.addChild(body)
         player.addChild(barrel)
@@ -217,7 +191,7 @@ final class GameScene: SKScene {
 
     private func buildHUD() {
         let y = arena.height / 2 - 24
-        for label in [scoreLabel, roomLabel, livesLabel] {
+        for label in [scoreLabel, roomLabel, healthLabel] {
             label.fontSize = 16
             label.zPosition = 40
             label.position.y = y
@@ -225,9 +199,19 @@ final class GameScene: SKScene {
         }
         scoreLabel.horizontalAlignmentMode = .left
         scoreLabel.position.x = -arena.width / 2 + 14
-        livesLabel.horizontalAlignmentMode = .right
-        livesLabel.position.x = arena.width / 2 - 14
-        livesLabel.fontColor = SKColor(red: 1, green: 0.35, blue: 0.4, alpha: 1)
+        healthLabel.horizontalAlignmentMode = .right
+        healthLabel.position.x = arena.width / 2 - 14
+        healthLabel.fontColor = SKColor(red: 1, green: 0.35, blue: 0.4, alpha: 1)
+
+        let xpTrack = SKSpriteNode(color: SKColor(white: 0, alpha: 0.6), size: CGSize(width: xpBarWidth + 2, height: 6))
+        xpTrack.anchorPoint = CGPoint(x: 0, y: 0.5)
+        xpTrack.position = CGPoint(x: -arena.width / 2 + 13, y: y - 10)
+        xpTrack.zPosition = 40
+        world.addChild(xpTrack)
+        xpBar.anchorPoint = CGPoint(x: 0, y: 0.5)
+        xpBar.position = CGPoint(x: 1, y: 0)
+        xpBar.zPosition = 1
+        xpTrack.addChild(xpBar)
 
         bannerTitle.fontSize = 46
         bannerTitle.fontColor = .yellow
@@ -239,6 +223,27 @@ final class GameScene: SKScene {
         bannerSubtitle.position = CGPoint(x: 0, y: -24)
         bannerSubtitle.zPosition = 50
         world.addChild(bannerSubtitle)
+
+        for label in [scoreLabel, roomLabel, healthLabel, bannerTitle, bannerSubtitle] {
+            addShadow(to: label)
+        }
+    }
+
+    /// A hard black drop shadow, like 16-bit console text.
+    private func addShadow(to label: SKLabelNode) {
+        let shadow = SKLabelNode(fontNamed: label.fontName)
+        shadow.name = "shadow"
+        shadow.fontSize = label.fontSize
+        shadow.fontColor = .black
+        shadow.horizontalAlignmentMode = label.horizontalAlignmentMode
+        shadow.position = CGPoint(x: 2, y: -2)
+        shadow.zPosition = -1
+        label.addChild(shadow)
+    }
+
+    private func setText(_ label: SKLabelNode, _ text: String) {
+        label.text = text
+        (label.childNode(withName: "shadow") as? SKLabelNode)?.text = text
     }
 
     // MARK: Flow
@@ -254,7 +259,10 @@ final class GameScene: SKScene {
         pickups.forEach { $0.node.removeFromParent() }
         pickups.removeAll()
         score = 0
-        lives = 3
+        health = 3
+        maxHealth = 3
+        level = 1
+        xp = 0
         spreadTime = 0
         rapidTime = 0
         invulnerable = 2
@@ -297,7 +305,7 @@ final class GameScene: SKScene {
     private func showBanner(_ title: String, _ subtitle: String, hideAfter delay: TimeInterval? = nil) {
         for (label, text) in [(bannerTitle, title), (bannerSubtitle, subtitle)] {
             label.removeAllActions()
-            label.text = text
+            setText(label, text)
             label.alpha = 1
             if let delay {
                 label.run(.sequence([.wait(forDuration: delay), .fadeOut(withDuration: 0.3)]))
@@ -306,9 +314,41 @@ final class GameScene: SKScene {
     }
 
     private func updateHUD() {
-        scoreLabel.text = "$\(score)"
-        roomLabel.text = "ROOM \(room)"
-        livesLabel.text = String(repeating: "♥", count: max(lives, 0))
+        setText(scoreLabel, "$\(score)")
+        setText(roomLabel, "ROOM \(room)  ·  LV \(level)")
+        let filled = max(health, 0)
+        setText(healthLabel, String(repeating: "♥", count: filled) + String(repeating: "♡", count: maxHealth - filled))
+        xpBar.size.width = xpBarWidth * CGFloat(xp) / CGFloat(xpToNextLevel)
+    }
+
+    /// Each level takes 10 more kills' worth of XP than the last.
+    private var xpToNextLevel: Int {
+        5 + 10 * level
+    }
+
+    private func gainXP(_ amount: Int) {
+        xp += amount
+        while xp >= xpToNextLevel {
+            xp -= xpToNextLevel
+            level += 1
+            maxHealth = min(maxHealth + 1, maxHealthCap)
+            health = maxHealth
+            floatText("LEVEL UP!", at: player.position)
+            burst(at: player.position, color: .yellow, count: 14)
+        }
+    }
+
+    private func floatText(_ text: String, at position: CGPoint) {
+        let label = SKLabelNode(fontNamed: "Menlo-Bold")
+        label.fontSize = 14
+        label.fontColor = .yellow
+        label.position = CGPoint(x: position.x, y: position.y + 24)
+        label.zPosition = 45
+        world.addChild(label)
+        addShadow(to: label)
+        setText(label, text)
+        let rise = SKAction.moveBy(x: 0, y: 30, duration: 0.9)
+        label.run(.sequence([.group([rise, .sequence([.wait(forDuration: 0.6), .fadeOut(withDuration: 0.3)])]), .removeFromParent()]))
     }
 
     // MARK: Frame update
@@ -374,7 +414,7 @@ final class GameScene: SKScene {
         let base = atan2(aim.dy, aim.dx)
         for offset in angles {
             let direction = CGVector(dx: cos(base + offset), dy: sin(base + offset))
-            let node = sprite(bulletTexture, radius: bulletRadius)
+            let node = pixelSprite(bulletTexture)
             node.position = player.position + direction * (playerRadius + 6)
             node.zPosition = 5
             world.addChild(node)
@@ -413,7 +453,8 @@ final class GameScene: SKScene {
 
     private func kill(_ enemy: Enemy) {
         score += enemy.points
-        burst(at: enemy.node.position, color: enemy.radius > 12 ? .purple : .red)
+        gainXP(enemy.points / 100)
+        burst(at: enemy.node.position, color: enemy.radius > 15 ? .purple : .red)
         enemy.node.removeFromParent()
 
         let roll = Int.random(in: 0..<100)
@@ -423,6 +464,8 @@ final class GameScene: SKScene {
             dropPickup(.spread, at: enemy.node.position)
         } else if roll < 16 {
             dropPickup(.rapid, at: enemy.node.position)
+        } else if roll < 19 {
+            dropPickup(.heart, at: enemy.node.position)
         }
         updateHUD()
     }
@@ -449,10 +492,10 @@ final class GameScene: SKScene {
 
             let enemy: Enemy
             if room >= 2 && Int.random(in: 0..<100) < 15 {
-                enemy = Enemy(node: sprite(bruiserTexture, radius: 16), hp: 4, speed: 48, radius: 16, points: 300)
+                enemy = Enemy(node: pixelSprite(bruiserTexture, scale: characterScale), hp: 4, speed: 48, radius: 19, points: 300)
             } else {
                 let speed = min(110, 60 + CGFloat(room) * 4) + CGFloat.random(in: -10...10)
-                enemy = Enemy(node: sprite(gruntTexture, radius: 10), hp: 1, speed: speed, radius: 10, points: 100)
+                enemy = Enemy(node: pixelSprite(gruntTexture, scale: characterScale), hp: 1, speed: speed, radius: 12, points: 100)
             }
             enemy.node.position = position
             enemy.node.zPosition = 4
@@ -471,6 +514,8 @@ final class GameScene: SKScene {
                 let sway = sin(CGFloat(stateTime) * 3 + enemy.wobble) * 0.5
                 let heading = atan2(toPlayer.dy, toPlayer.dx) + sway
                 enemy.node.position = enemy.node.position + CGVector(dx: cos(heading), dy: sin(heading)) * (enemy.speed * dt)
+                // Flip back and forth for a two-frame waddle.
+                enemy.node.xScale = sin(CGFloat(stateTime) * 12 + enemy.wobble) > 0 ? 1 : -1
             }
             if !player.isHidden && invulnerable <= 0 && distance < enemy.radius + playerRadius - 2 {
                 playerWasHit = true
@@ -482,7 +527,7 @@ final class GameScene: SKScene {
     }
 
     private func loseLife() {
-        lives -= 1
+        health -= 1
         burst(at: player.position, color: .cyan, count: 16)
         // Clear the mob around the respawn point so the player gets a fair restart.
         enemies.removeAll { enemy in
@@ -495,21 +540,20 @@ final class GameScene: SKScene {
         rapidTime = 0
         invulnerable = 2.5
         updateHUD()
-        if lives <= 0 {
+        if health <= 0 {
             gameOver()
         }
     }
 
     private func dropPickup(_ kind: PickupKind, at position: CGPoint) {
-        let symbol: String
+        let texture: SKTexture
         switch kind {
-        case .cash: symbol = "💵"
-        case .spread: symbol = "💥"
-        case .rapid: symbol = "⚡️"
+        case .cash: texture = cashTexture
+        case .heart: texture = heartTexture
+        case .spread: texture = spreadTexture
+        case .rapid: texture = rapidTexture
         }
-        let node = SKLabelNode(text: symbol)
-        node.fontSize = 20
-        node.verticalAlignmentMode = .center
+        let node = pixelSprite(texture)
         node.position = position
         node.zPosition = 3
         world.addChild(node)
@@ -526,6 +570,7 @@ final class GameScene: SKScene {
             if collected {
                 switch pickup.kind {
                 case .cash: score += 1000
+                case .heart: health = min(health + 1, maxHealth)
                 case .spread: spreadTime = 10
                 case .rapid: rapidTime = 10
                 }

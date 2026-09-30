@@ -4,6 +4,10 @@ A twin-stick arena shooter for iPhone, iPad and Mac, built with SpriteKit and Sw
 
 Inspired by early-90s arcade arena shooters. All code, names and art are original.
 
+<p align="center">
+  <img src="screenshots/gameplay.png" width="720" alt="Gameplay: the contestant firing at grunts in a checkered studio arena">
+</p>
+
 ## Status
 
 First playable build. One arena, endless rooms that get harder, no map or bosses yet.
@@ -13,8 +17,10 @@ First playable build. One arena, endless rooms that get harder, no map or bosses
 - **Twin-stick controls.** Move with one stick and fire in 8 directions with the other, independently.
 - **Door-based waves.** Enemies spawn in bursts from doors on all four walls until the room is cleared.
 - **Two enemy types.** Fast red grunts, and from Room 2 on, tougher purple bruisers that take four hits.
-- **Pickups.** Cash for bonus points, plus spread shot and rapid fire that last 10 seconds each.
-- **Rooms and score.** Clear a room for a bonus and move on to a harder one. Three lives, then the show is cancelled.
+- **Pickups.** Cash for bonus points, hearts to heal, plus spread shot and rapid fire that last 10 seconds each.
+- **16-bit look.** Pixel-art characters, pickups and a checkered studio arena, all drawn in code with no image files.
+- **Levelling.** Kills earn XP. Each level adds a heart to your maximum health (up to 10) and refills it, so you grow as the rooms get harder.
+- **Rooms and score.** Clear a room for a bonus and move on to a harder one. Run out of hearts and the show is cancelled.
 
 ## Controls
 
@@ -31,6 +37,7 @@ First playable build. One arena, endless rooms that get harder, no map or bosses
 | `MyApp.swift` | App entry point |
 | `ContentView.swift` | Hosts the SpriteKit scene in SwiftUI |
 | `GameScene.swift` | The game: arena, player, enemies, bullets, pickups, rooms and HUD |
+| `PixelArt.swift` | Pixel-art sprites and the arena backdrop, defined as character grids |
 | `Input.swift` | Merges touch sticks, keyboard and game controller into move and fire vectors |
 
 ## Running it
