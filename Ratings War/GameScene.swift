@@ -46,6 +46,8 @@ final class GameScene: SKScene {
 
     private let arena = CGSize(width: 720, height: 480)
     private let wall: CGFloat = 16
+    /// The back wall is drawn tall and face-on, for the 3/4 top-down look.
+    private let backWall: CGFloat = 76
     private let doorWidth: CGFloat = 96
     private let playerRadius: CGFloat = 12
     private let characterScale: CGFloat = 2.5
@@ -56,10 +58,11 @@ final class GameScene: SKScene {
     private let world = SKNode()
     private let player = SKNode()
     private let barrel = SKSpriteNode(color: .white, size: CGSize(width: 16, height: 4))
-    private let scoreLabel = SKLabelNode(fontNamed: "Menlo-Bold")
-    private let roomLabel = SKLabelNode(fontNamed: "Menlo-Bold")
-    private let healthLabel = SKLabelNode(fontNamed: "Menlo-Bold")
-    private let xpBar = SKSpriteNode(color: .yellow, size: CGSize(width: 0, height: 4))
+    private var scoreDigits: [SKSpriteNode] = []
+    private var roomDigits: [SKSpriteNode] = []
+    private var xpSegments: [SKSpriteNode] = []
+    private let levelLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    private let heartsRow = SKNode()
     private let bannerTitle = SKLabelNode(fontNamed: "AvenirNext-Heavy")
     private let bannerSubtitle = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
 
@@ -71,6 +74,9 @@ final class GameScene: SKScene {
     private let spreadTexture = PixelArt.texture(PixelArt.spread)
     private let rapidTexture = PixelArt.texture(PixelArt.rapid)
     private let heartTexture = PixelArt.texture(PixelArt.heart)
+    private let halfHeartTexture = PixelArt.texture(PixelArt.halfHeart)
+    private let emptyHeartTexture = PixelArt.texture(PixelArt.emptyHeart)
+    private let shadowTexture = PixelArt.texture(PixelArt.shadow)
 
     // MARK: Game state
 
@@ -85,12 +91,12 @@ final class GameScene: SKScene {
     private var pickups: [Pickup] = []
 
     private var score = 0
-    private var health = 3
-    private var maxHealth = 3
+    /// Health is counted in half-hearts: 6 means three full hearts.
+    private var health = 6
+    private var maxHealth = 6
     private var level = 1
     private var xp = 0
-    private let xpBarWidth: CGFloat = 90
-    private let maxHealthCap = 10
+    private let maxHealthCap = 20
     private var room = 1
     private var enemiesToSpawn = 0
     private var spawnTimer: TimeInterval = 0
@@ -148,9 +154,10 @@ final class GameScene: SKScene {
 
     private func layoutWorld() {
         let fitWidth = arena.width + 2 * wall
-        let fitHeight = arena.height + 2 * wall
-        world.setScale(min(size.width / fitWidth, size.height / fitHeight))
-        world.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        let fitHeight = arena.height + wall + backWall
+        let scale = min(size.width / fitWidth, size.height / fitHeight)
+        world.setScale(scale)
+        world.position = CGPoint(x: size.width / 2, y: size.height / 2 - (backWall - wall) / 2 * scale)
     }
 
     private var startPrompt: String {
@@ -168,11 +175,12 @@ final class GameScene: SKScene {
     }
 
     private func buildArena() {
-        let texture = PixelArt.arenaTexture(arena: arena, wall: wall, door: doorWidth)
+        let texture = PixelArt.arenaTexture(arena: arena, wall: wall, backWall: backWall, door: doorWidth)
         let backdrop = SKSpriteNode(
             texture: texture,
-            size: CGSize(width: arena.width + 2 * wall, height: arena.height + 2 * wall)
+            size: CGSize(width: arena.width + 2 * wall, height: arena.height + wall + backWall)
         )
+        backdrop.position.y = (backWall - wall) / 2
         backdrop.zPosition = -10
         world.addChild(backdrop)
     }
@@ -182,36 +190,82 @@ final class GameScene: SKScene {
         barrel.anchorPoint = CGPoint(x: 0, y: 0.5)
         barrel.position = CGPoint(x: 0, y: -8)
         barrel.zPosition = 1
+        player.addChild(shadow(under: body))
         player.addChild(body)
         player.addChild(barrel)
-        player.zPosition = 10
         player.isHidden = true
         world.addChild(player)
     }
 
-    private func buildHUD() {
-        let y = arena.height / 2 - 24
-        for label in [scoreLabel, roomLabel, healthLabel] {
-            label.fontSize = 16
-            label.zPosition = 40
-            label.position.y = y
-            world.addChild(label)
-        }
-        scoreLabel.horizontalAlignmentMode = .left
-        scoreLabel.position.x = -arena.width / 2 + 14
-        healthLabel.horizontalAlignmentMode = .right
-        healthLabel.position.x = arena.width / 2 - 14
-        healthLabel.fontColor = SKColor(red: 1, green: 0.35, blue: 0.4, alpha: 1)
+    /// A soft dark oval at a character's feet, so they read as standing on the floor.
+    private func shadow(under body: SKSpriteNode) -> SKSpriteNode {
+        let shadow = pixelSprite(shadowTexture, scale: body.size.width / 12)
+        shadow.alpha = 0.4
+        shadow.position.y = -body.size.height / 2 + 1
+        shadow.zPosition = -1
+        return shadow
+    }
 
-        let xpTrack = SKSpriteNode(color: SKColor(white: 0, alpha: 0.6), size: CGSize(width: xpBarWidth + 2, height: 6))
-        xpTrack.anchorPoint = CGPoint(x: 0, y: 0.5)
-        xpTrack.position = CGPoint(x: -arena.width / 2 + 13, y: y - 10)
-        xpTrack.zPosition = 40
-        world.addChild(xpTrack)
-        xpBar.anchorPoint = CGPoint(x: 0, y: 0.5)
-        xpBar.position = CGPoint(x: 1, y: 0)
-        xpBar.zPosition = 1
-        xpTrack.addChild(xpBar)
+    /// Lower on screen means closer to the camera, so it draws in front.
+    private func depth(for position: CGPoint) -> CGFloat {
+        5 - position.y / 1000
+    }
+
+    private func buildHUD() {
+        // Two scoreboard panels on the back wall, one each side of the doorway.
+        let panelSize = CGSize(width: 196, height: 60)
+        let panelY = arena.height / 2 + backWall / 2
+        let leftPanel = SKSpriteNode(texture: PixelArt.panelTexture(size: panelSize, hasBar: true), size: panelSize)
+        leftPanel.position = CGPoint(x: -192, y: panelY)
+        leftPanel.zPosition = 40
+        world.addChild(leftPanel)
+        let rightPanel = SKSpriteNode(texture: PixelArt.panelTexture(size: panelSize, hasBar: false), size: panelSize)
+        rightPanel.position = CGPoint(x: 192, y: panelY)
+        rightPanel.zPosition = 40
+        world.addChild(rightPanel)
+
+        // Left: an 8-digit score above a segmented levelling bar.
+        for index in 0..<8 {
+            let digit = pixelSprite(PixelArt.digits[0], scale: 3)
+            digit.position = CGPoint(x: -63 + CGFloat(index) * 18, y: 6)
+            digit.zPosition = 1
+            leftPanel.addChild(digit)
+            scoreDigits.append(digit)
+        }
+        for index in 0..<10 {
+            let segment = SKSpriteNode(color: .black, size: CGSize(width: 10, height: 6))
+            segment.position = CGPoint(x: -85 + CGFloat(index) * 12, y: -19)
+            segment.zPosition = 1
+            leftPanel.addChild(segment)
+            xpSegments.append(segment)
+        }
+        levelLabel.fontSize = 11
+        levelLabel.fontColor = SKColor(red: 0.45, green: 0.90, blue: 0.45, alpha: 1)
+        levelLabel.horizontalAlignmentMode = .right
+        levelLabel.verticalAlignmentMode = .center
+        levelLabel.position = CGPoint(x: 90, y: -19)
+        levelLabel.zPosition = 1
+        leftPanel.addChild(levelLabel)
+
+        // Right: hearts above the room number.
+        heartsRow.position = CGPoint(x: -67, y: 12)
+        heartsRow.zPosition = 1
+        rightPanel.addChild(heartsRow)
+        let roomCaption = SKLabelNode(fontNamed: "Menlo-Bold")
+        roomCaption.text = "ROOM"
+        roomCaption.fontSize = 11
+        roomCaption.fontColor = SKColor(red: 0.55, green: 0.82, blue: 1.00, alpha: 1)
+        roomCaption.verticalAlignmentMode = .center
+        roomCaption.position = CGPoint(x: -20, y: -12)
+        roomCaption.zPosition = 1
+        rightPanel.addChild(roomCaption)
+        for index in 0..<2 {
+            let digit = pixelSprite(PixelArt.digits[0], scale: 2)
+            digit.position = CGPoint(x: 20 + CGFloat(index) * 13, y: -12)
+            digit.zPosition = 1
+            rightPanel.addChild(digit)
+            roomDigits.append(digit)
+        }
 
         bannerTitle.fontSize = 46
         bannerTitle.fontColor = .yellow
@@ -224,9 +278,10 @@ final class GameScene: SKScene {
         bannerSubtitle.zPosition = 50
         world.addChild(bannerSubtitle)
 
-        for label in [scoreLabel, roomLabel, healthLabel, bannerTitle, bannerSubtitle] {
+        for label in [bannerTitle, bannerSubtitle] {
             addShadow(to: label)
         }
+        updateHUD()
     }
 
     /// A hard black drop shadow, like 16-bit console text.
@@ -259,8 +314,8 @@ final class GameScene: SKScene {
         pickups.forEach { $0.node.removeFromParent() }
         pickups.removeAll()
         score = 0
-        health = 3
-        maxHealth = 3
+        health = 6
+        maxHealth = 6
         level = 1
         xp = 0
         spreadTime = 0
@@ -314,11 +369,25 @@ final class GameScene: SKScene {
     }
 
     private func updateHUD() {
-        setText(scoreLabel, "$\(score)")
-        setText(roomLabel, "ROOM \(room)  ·  LV \(level)")
-        let filled = max(health, 0)
-        setText(healthLabel, String(repeating: "♥", count: filled) + String(repeating: "♡", count: maxHealth - filled))
-        xpBar.size.width = xpBarWidth * CGFloat(xp) / CGFloat(xpToNextLevel)
+        show(score, on: scoreDigits)
+        show(room, on: roomDigits)
+        updateHearts()
+        let litSegments = xp * xpSegments.count / xpToNextLevel
+        for (index, segment) in xpSegments.enumerated() {
+            segment.color = index < litSegments
+                ? SKColor(red: 0.35, green: 0.85, blue: 0.35, alpha: 1)
+                : SKColor(red: 0.12, green: 0.24, blue: 0.14, alpha: 1)
+        }
+        levelLabel.text = "LV\(level)"
+    }
+
+    /// Writes a number onto a row of LCD digits, padded with leading zeros.
+    private func show(_ number: Int, on digits: [SKSpriteNode]) {
+        var remaining = max(number, 0)
+        for digit in digits.reversed() {
+            digit.texture = PixelArt.digits[remaining % 10]
+            remaining /= 10
+        }
     }
 
     /// Each level takes 10 more kills' worth of XP than the last.
@@ -331,10 +400,24 @@ final class GameScene: SKScene {
         while xp >= xpToNextLevel {
             xp -= xpToNextLevel
             level += 1
+            // Half a heart more to hold, and half a heart healed.
             maxHealth = min(maxHealth + 1, maxHealthCap)
-            health = maxHealth
+            health = min(health + 1, maxHealth)
             floatText("LEVEL UP!", at: player.position)
             burst(at: player.position, color: .yellow, count: 14)
+        }
+    }
+
+    /// Draws one heart per slot, left to right: full, half, or empty.
+    private func updateHearts() {
+        heartsRow.removeAllChildren()
+        let heartCount = (maxHealth + 1) / 2
+        for index in 0..<heartCount {
+            let halves = health - index * 2
+            let texture = halves >= 2 ? heartTexture : (halves == 1 ? halfHeartTexture : emptyHeartTexture)
+            let heart = pixelSprite(texture, scale: 1.5)
+            heart.position = CGPoint(x: CGFloat(index) * 15, y: 0)
+            heartsRow.addChild(heart)
         }
     }
 
@@ -396,6 +479,7 @@ final class GameScene: SKScene {
         position.x = min(max(position.x, -halfWidth), halfWidth)
         position.y = min(max(position.y, -halfHeight), halfHeight)
         player.position = position
+        player.zPosition = depth(for: position)
 
         invulnerable = max(0, invulnerable - dt)
         spreadTime = max(0, spreadTime - dt)
@@ -498,7 +582,8 @@ final class GameScene: SKScene {
                 enemy = Enemy(node: pixelSprite(gruntTexture, scale: characterScale), hp: 1, speed: speed, radius: 12, points: 100)
             }
             enemy.node.position = position
-            enemy.node.zPosition = 4
+            enemy.node.addChild(shadow(under: enemy.node))
+            enemy.node.zPosition = depth(for: position)
             world.addChild(enemy.node)
             enemies.append(enemy)
         }
@@ -516,6 +601,7 @@ final class GameScene: SKScene {
                 enemy.node.position = enemy.node.position + CGVector(dx: cos(heading), dy: sin(heading)) * (enemy.speed * dt)
                 // Flip back and forth for a two-frame waddle.
                 enemy.node.xScale = sin(CGFloat(stateTime) * 12 + enemy.wobble) > 0 ? 1 : -1
+                enemy.node.zPosition = depth(for: enemy.node.position)
             }
             if !player.isHidden && invulnerable <= 0 && distance < enemy.radius + playerRadius - 2 {
                 playerWasHit = true
@@ -527,7 +613,7 @@ final class GameScene: SKScene {
     }
 
     private func loseLife() {
-        health -= 1
+        health -= 2
         burst(at: player.position, color: .cyan, count: 16)
         // Clear the mob around the respawn point so the player gets a fair restart.
         enemies.removeAll { enemy in
@@ -570,7 +656,7 @@ final class GameScene: SKScene {
             if collected {
                 switch pickup.kind {
                 case .cash: score += 1000
-                case .heart: health = min(health + 1, maxHealth)
+                case .heart: health = min(health + 2, maxHealth)
                 case .spread: spreadTime = 10
                 case .rapid: rapidTime = 10
                 }
@@ -605,9 +691,8 @@ final class GameScene: SKScene {
     #else
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
-            guard state == .playing || state == .roomCleared else {
+            if state != .playing && state != .roomCleared {
                 input.requestConfirm()
-                continue
             }
             let point = touch.location(in: self)
             let isMove = point.x < size.width / 2
